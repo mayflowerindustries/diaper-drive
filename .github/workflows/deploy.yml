@@ -13,6 +13,8 @@ jobs:
 
       - name: Deploy to Railway
         uses: bervProject/railway-deploy@main
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         with:
-          railway_token: ${{ secrets.RAILWAY_TOKEN }}
           service: 91b1b55d-c617-43ce-bced-70640e7b0e2e
+          detach: true
