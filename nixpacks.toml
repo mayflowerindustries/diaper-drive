@@ -1,3 +1,4 @@
+# nixpacks config - forces npm install, not npm ci
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
