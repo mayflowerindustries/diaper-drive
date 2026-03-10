@@ -9,12 +9,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
 
-      - name: Deploy to Railway
-        uses: bervProject/railway-deploy@main
+      - name: Trigger Railway redeploy
+        run: railway redeploy --service 91b1b55d-c617-43ce-bced-70640e7b0e2e --yes
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        with:
-          service: 91b1b55d-c617-43ce-bced-70640e7b0e2e
-          detach: true
