@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to Railway
-        uses: railwayapp/railway-deploy@v1
+        uses: bervProject/railway-deploy@main
         with:
-          railway-token: ${{ secrets.RAILWAY_TOKEN }}
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
           service: 91b1b55d-c617-43ce-bced-70640e7b0e2e
