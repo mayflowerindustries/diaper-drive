@@ -1,27 +1,36 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 
 /*
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  DIAPER DRIVE — Enterprise Edition                                         ║
-║  Supabase + Claude AI Matching                                             ║
-║                                                                            ║
-║  DEPLOYMENT ARTIFACTS:                                                     ║
-║  • SQL Migration: See bottom of file (DEPLOYMENT_SQL)                      ║
-║  • Edge Function: See bottom of file (EDGE_FUNCTION_CODE)                  ║
-║  • To split into files: Each ── SECTION ── maps to a separate module       ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+  DIAPER DRIVE — v3 Sonos-inspired redesign
+  Supabase + Claude AI Matching
+  Clean. Minimal. Premium.
 */
 
 // ── SECTION: Design Tokens ──────────────────────────────────────────────────
 const T = {
-  primary:   { 50:"#eff6ff",100:"#dbeafe",200:"#bfdbfe",300:"#93c5fd",400:"#60a5fa",500:"#3b82f6",600:"#2563eb",700:"#1d4ed8",800:"#1e40af" },
-  emerald:   { 50:"#ecfdf5",100:"#d1fae5",200:"#a7f3d0",500:"#10b981",600:"#059669",700:"#047857" },
-  amber:     { 50:"#fffbeb",100:"#fef3c7",500:"#f59e0b",600:"#d97706",700:"#b45309" },
-  rose:      { 50:"#fff1f2",100:"#ffe4e6",500:"#f43f5e",600:"#e11d48" },
-  violet:    { 50:"#f5f3ff",100:"#ede9fe",200:"#ddd6fe",500:"#8b5cf6",600:"#7c3aed",700:"#6d28d9" },
-  slate:     { 50:"#f8fafc",100:"#f1f5f9",200:"#e2e8f0",300:"#cbd5e1",400:"#94a3b8",500:"#64748b",600:"#475569",700:"#334155",800:"#1e293b",900:"#0f172a" },
-  radius:    { sm:8, md:12, lg:16, xl:20, full:9999 },
-  shadow:    { sm:"0 1px 2px rgba(0,0,0,0.05)", md:"0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04)", lg:"0 4px 12px rgba(0,0,0,0.08)", xl:"0 8px 24px rgba(0,0,0,0.12)" },
+  // Sonos-inspired: near-black, warm whites, one accent
+  black:    "#111111",
+  dark:     "#1a1a1a",
+  charcoal: "#2a2a2a",
+  gray:     { 100:"#f7f7f7", 200:"#ebebeb", 300:"#d4d4d4", 400:"#a3a3a3", 500:"#737373", 600:"#525252", 700:"#404040" },
+  white:    "#ffffff",
+  accent:   "#E8562A",     // Sonos orange-red
+  accentLt: "#FEF0EB",
+  accentDk: "#C44520",
+  green:    "#22A66E",
+  greenLt:  "#EDFCF5",
+  amber:    "#E5A000",
+  amberLt:  "#FFF9E6",
+  red:      "#DC3545",
+  redLt:    "#FFF0F1",
+  radius:   { sm:6, md:10, lg:14, xl:20, full:9999 },
+  shadow:   {
+    sm: "0 1px 2px rgba(0,0,0,0.04)",
+    md: "0 2px 8px rgba(0,0,0,0.06)",
+    lg: "0 4px 20px rgba(0,0,0,0.08)",
+    xl: "0 8px 40px rgba(0,0,0,0.12)",
+  },
+  font: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 };
 
 // ── SECTION: Constants ──────────────────────────────────────────────────────
@@ -41,9 +50,9 @@ const RADIUS_OPTIONS = [
   { value:"10",label:"10 miles" },{ value:"25",label:"25 miles" },
 ];
 const URGENCY_LEVELS = [
-  { value:"low",label:"Low — Can wait a few days",color:T.emerald },
+  { value:"low",label:"Low — Can wait a few days",color:T.green },
   { value:"medium",label:"Medium — Need within 1–2 days",color:T.amber },
-  { value:"high",label:"High — Urgent, running out today",color:T.rose },
+  { value:"high",label:"High — Urgent, running out today",color:T.red },
 ];
 
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36);
@@ -54,8 +63,6 @@ const clamp = (n,min,max) => Math.max(min,Math.min(max,n));
 const SUPABASE_URL = "https://jwbukmmepqyahbtchcqy.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3YnVrbW1lcHF5YWhidGNoY3F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNzI5MDEsImV4cCI6MjA4ODY0ODkwMX0.CUOzGE9nRGCQix40fOh0BiUw6svjTyGHfIX0Nzy9F0Q";
 
-// Lightweight Supabase client (no SDK dependency — uses REST API directly)
-// This keeps the app as a single file with zero npm dependencies.
 const supabase = {
   _headers() {
     const h = { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
@@ -123,20 +130,15 @@ const supabase = {
   }
 };
 
-// Connection state — try Supabase first, fall back to demo if it fails
 let LIVE_MODE = false;
 
-// ── SECTION: Data Service (Supabase-backed with demo fallback) ──────────────
-// The app tries to connect to Supabase on load. If it fails, it falls back to
-// the in-memory demo store seamlessly.
-
+// ── SECTION: Data Service ───────────────────────────────────────────────────
 function createDemoStore() {
   let requests = [];
   let matches = [];
   let profiles = {};
   let listeners = new Set();
 
-  // Seed realistic demo data
   const demoSeekers = [
     { id:"demo-1", name:"Maria G.", zip:"90210" },
     { id:"demo-2", name:"James T.", zip:"90211" },
@@ -185,11 +187,7 @@ function createDemoStore() {
 const demoStore = createDemoStore();
 
 // ── SECTION: AI Matching Service ────────────────────────────────────────────
-// In production this calls a Supabase Edge Function.
-// In demo mode it simulates Claude's reasoning locally.
-
 async function runAIMatching({ donorZip, donorSizes, donorRadius, donorId, store }) {
-  // Try the Supabase Edge Function first (production AI matching via Claude API)
   if (LIVE_MODE) {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-match`, {
@@ -204,13 +202,8 @@ async function runAIMatching({ donorZip, donorSizes, donorRadius, donorId, store
         const { matches } = await res.json();
         if (matches && matches.length > 0) {
           const formatted = matches.map(m => ({
-            id: m.id || uid(),
-            donorId,
-            requestId: m.requestId,
-            score: m.score,
-            reason: m.reason,
-            distance: m.distance || 0,
-            status: "suggested",
+            id: m.id || uid(), donorId, requestId: m.requestId, score: m.score,
+            reason: m.reason, distance: m.distance || 0, status: "suggested",
             createdAt: new Date().toISOString(),
             _request: m._request || { size: m.size, urgency: m.urgency, notes: m.notes, zipCode: m.zipCode, createdAt: m.requestCreatedAt, timesHelped: m.timesHelped },
             _seekerName: m.seekerName || "A family",
@@ -224,79 +217,52 @@ async function runAIMatching({ donorZip, donorSizes, donorRadius, donorId, store
     }
   }
 
-  // Fallback: local intelligent matching (simulates Claude's reasoning)
   const allRequests = store.getActiveRequests().filter(r => r.seekerId !== donorId);
   if (allRequests.length === 0) return [];
-
-  await new Promise(r => setTimeout(r, 1500)); // simulate API latency
+  await new Promise(r => setTimeout(r, 1500));
 
   const scored = allRequests.map(req => {
     let score = 0;
     let reasons = [];
-
-    // Size match (exact = 40pts, adjacent = 15pts)
     const sizeIdx = DIAPER_SIZES.findIndex(s => s.value === req.size);
     const donorSizeIdxs = donorSizes.map(ds => DIAPER_SIZES.findIndex(s => s.value === ds));
     if (donorSizes.includes(req.size)) {
-      score += 40;
-      reasons.push(`Exact size match (${req.size})`);
+      score += 40; reasons.push(`Exact size match (${req.size})`);
     } else if (donorSizeIdxs.some(i => Math.abs(i - sizeIdx) === 1)) {
       score += 15;
       const adjacent = DIAPER_SIZES[donorSizeIdxs.find(i => Math.abs(i - sizeIdx) === 1)]?.value;
-      reasons.push(`Close size — you have ${adjacent}, they need ${req.size} (babies grow fast)`);
-    } else {
-      return null; // no size relevance at all
-    }
+      reasons.push(`Close size — you have ${adjacent}, they need ${req.size}`);
+    } else { return null; }
 
-    // Urgency (high=30, med=15, low=5)
     const urgencyPts = { high:30, medium:15, low:5 };
     score += urgencyPts[req.urgency] || 10;
-    if (req.urgency === "high") reasons.push("Urgent need — family is running out today");
-    else if (req.urgency === "medium") reasons.push("Moderate urgency — needed within 1–2 days");
+    if (req.urgency === "high") reasons.push("Urgent — running out today");
+    else if (req.urgency === "medium") reasons.push("Needed within 1–2 days");
 
-    // Recency (newer requests get more points, max 15)
     const hoursOld = (Date.now() - new Date(req.createdAt).getTime()) / 3600000;
     const recencyPts = clamp(Math.round(15 - hoursOld * 0.2), 0, 15);
     score += recencyPts;
-    if (hoursOld < 6) reasons.push("Posted recently — help can make an immediate impact");
+    if (hoursOld < 6) reasons.push("Posted recently");
 
-    // First-time seeker bonus (15pts)
-    if (req.timesHelped === 0) {
-      score += 15;
-      reasons.push("First-time request — this family hasn't received help yet");
-    }
+    if (req.timesHelped === 0) { score += 15; reasons.push("First-time request"); }
 
-    // Distance (simulated)
     const dist = Math.abs(parseInt(req.zipCode || "0") - parseInt(donorZip || "0")) * 0.3 + Math.random() * 1.5;
     if (dist > parseFloat(donorRadius)) return null;
-
-    // Notes bonus — if they wrote a personal note
-    if (req.notes && req.notes.length > 10) {
-      score += 5;
-    }
+    if (req.notes && req.notes.length > 10) score += 5;
 
     const seekerProfile = store.getProfile(req.seekerId);
-
     return {
-      id: uid(),
-      donorId,
-      requestId: req.id,
-      score: clamp(score, 0, 100),
-      reason: reasons.join(". ") + ".",
-      distance: dist,
-      status: "suggested",
+      id: uid(), donorId, requestId: req.id, score: clamp(score, 0, 100),
+      reason: reasons.join(". ") + ".", distance: dist, status: "suggested",
       createdAt: new Date().toISOString(),
-      // Denormalized for display
-      _request: req,
-      _seekerName: seekerProfile?.displayName || "A family",
+      _request: req, _seekerName: seekerProfile?.displayName || "A family",
     };
   }).filter(Boolean).sort((a,b) => b.score - a.score);
 
   store.saveMatches(scored);
   return scored;
 }
-
-// ── SECTION: Contexts ───────────────────────────────────────────────────────
+// ── SECTION: Context ────────────────────────────────────────────────────────
 const AppCtx = createContext(null);
 
 function AppProvider({ children }) {
@@ -309,25 +275,17 @@ function AppProvider({ children }) {
   const [isLive, setIsLive] = useState(false);
   const [, setTick] = useState(0);
 
-  // Re-render on store changes
-  useEffect(() => {
-    return store.subscribe(() => setTick(t => t+1));
-  }, [store]);
+  useEffect(() => { return store.subscribe(() => setTick(t => t+1)); }, [store]);
 
-  // Try Supabase connection on mount
   useEffect(() => {
     (async () => {
       try {
         const data = await supabase.auth_signInAnonymously();
         if (data.access_token && data.user) {
-          LIVE_MODE = true;
-          setIsLive(true);
+          LIVE_MODE = true; setIsLive(true);
           setUser(prev => ({ ...prev, id: data.user.id, isAnonymous: true }));
-          console.log("[Diaper Drive] Connected to Supabase (live mode)");
         }
-      } catch (e) {
-        console.log("[Diaper Drive] Supabase unavailable, using demo mode", e);
-      }
+      } catch (e) { console.log("[Diaper Drive] Demo mode", e); }
     })();
   }, []);
 
@@ -341,7 +299,6 @@ function AppProvider({ children }) {
     setUser(prev => {
       const next = { ...prev, ...data };
       store.setProfile(next.id, next);
-      // Also update Supabase profile if live
       if (LIVE_MODE) {
         supabase.from("profiles").then(t => t.update(
           { display_name: next.displayName, zip_code: next.zipCode, role: next.role },
@@ -367,16 +324,18 @@ function Notifs() {
   const { notifications } = useApp();
   if (!notifications.length) return null;
   const styles = {
-    success:{ bg:T.emerald[50], bdr:T.emerald[500], txt:T.emerald[700], ico:"✓" },
-    error:{ bg:T.rose[50], bdr:T.rose[500], txt:T.rose[600], ico:"✕" },
-    info:{ bg:T.primary[50], bdr:T.primary[500], txt:T.primary[700], ico:"ℹ" },
+    success:{ bg:T.greenLt, bdr:T.green, txt:"#1a5c3a" },
+    error:{ bg:T.redLt, bdr:T.red, txt:"#8b1a1a" },
+    info:{ bg:T.gray[100], bdr:T.gray[400], txt:T.gray[700] },
   };
   return (
-    <div style={{ position:"fixed",top:20,right:20,zIndex:1000,display:"flex",flexDirection:"column",gap:8,maxWidth:380 }}>
+    <div style={{ position:"fixed",top:24,right:24,zIndex:1000,display:"flex",flexDirection:"column",gap:10,maxWidth:400 }}>
       {notifications.map(n => { const s=styles[n.type]||styles.info; return (
-        <div key={n.id} style={{ padding:"12px 16px",background:s.bg,borderLeft:`4px solid ${s.bdr}`,borderRadius:T.radius.md,boxShadow:T.shadow.lg,display:"flex",alignItems:"center",gap:10,animation:"slideIn .3s ease-out" }}>
-          <span style={{ fontWeight:700,fontSize:16,color:s.bdr }}>{s.ico}</span>
-          <span style={{ fontSize:14,color:s.txt,fontWeight:500 }}>{n.message}</span>
+        <div key={n.id} style={{
+          padding:"14px 20px",background:s.bg,borderLeft:`3px solid ${s.bdr}`,
+          borderRadius:T.radius.md,boxShadow:T.shadow.lg,animation:"slideIn .3s ease-out",
+        }}>
+          <span style={{ fontSize:14,color:s.txt,fontWeight:500,letterSpacing:"-0.01em" }}>{n.message}</span>
         </div>
       );})}
     </div>
@@ -384,25 +343,27 @@ function Notifs() {
 }
 
 function Btn({ children, variant="primary", size="md", disabled, loading, onClick, style:sx, ...p }) {
-  const vs = {
-    primary:{ bg:T.primary[600],hbg:T.primary[700],c:"#fff" },
-    success:{ bg:T.emerald[600],hbg:T.emerald[700],c:"#fff" },
-    danger:{ bg:T.rose[500],hbg:T.rose[600],c:"#fff" },
-    ghost:{ bg:"transparent",hbg:T.slate[100],c:T.slate[700] },
-    outline:{ bg:"#fff",hbg:T.slate[50],c:T.slate[700],b:`1px solid ${T.slate[300]}` },
-    ai:{ bg:`linear-gradient(135deg,${T.violet[600]},${T.primary[600]})`,hbg:`linear-gradient(135deg,${T.violet[700]},${T.primary[700]})`,c:"#fff" },
-  };
-  const szs = { sm:{p:"6px 12px",f:13},md:{p:"10px 20px",f:14},lg:{p:"14px 28px",f:16} };
-  const v=vs[variant]||vs.primary, s=szs[size]||szs.md;
   const [h,setH]=useState(false);
-  const isGrad = v.bg?.startsWith("linear");
+  const base = {
+    border:"none", fontWeight:600, cursor:disabled?"not-allowed":"pointer",
+    transition:"all .2s ease", display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,
+    width:"100%", letterSpacing:"-0.01em", fontFamily:T.font,
+  };
+  const variants = {
+    primary:{ background:disabled?T.gray[300]:h?T.black:T.charcoal, color:T.white },
+    accent:{ background:disabled?T.gray[300]:h?T.accentDk:T.accent, color:T.white },
+    ghost:{ background:h?T.gray[100]:"transparent", color:T.gray[700], },
+    outline:{ background:h?T.gray[100]:T.white, color:T.black, border:`1px solid ${T.gray[300]}` },
+    danger:{ background:disabled?T.gray[300]:h?"#c82333":T.red, color:T.white },
+    ai:{ background:disabled?T.gray[300]:h?T.black:T.charcoal, color:T.white },
+  };
+  const sizes = { sm:{padding:"8px 16px",fontSize:13,borderRadius:T.radius.sm},md:{padding:"12px 24px",fontSize:14,borderRadius:T.radius.md},lg:{padding:"16px 32px",fontSize:16,borderRadius:T.radius.md} };
+  const v=variants[variant]||variants.primary, s=sizes[size]||sizes.md;
   return (
-    <button onClick={onClick} disabled={disabled||loading} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
-      style={{ padding:s.p, fontSize:s.f, background:disabled?T.slate[200]:h?(v.hbg):v.bg, color:disabled?T.slate[400]:v.c,
-        border:v.b||"none", borderRadius:T.radius.md, fontWeight:600, cursor:disabled?"not-allowed":"pointer",
-        transition:"all .2s", display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,
-        width:"100%", opacity:loading?.7:1, ...sx }} {...p}>
-      {loading && <span style={{ display:"inline-block",width:16,height:16,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite" }}/>}
+    <button onClick={onClick} disabled={disabled||loading}
+      onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+      style={{ ...base, ...s, ...v, opacity:loading?.6:1, ...sx }} {...p}>
+      {loading && <span style={{ display:"inline-block",width:14,height:14,border:`2px solid rgba(255,255,255,.3)`,borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite" }}/>}
       {children}
     </button>
   );
@@ -410,9 +371,9 @@ function Btn({ children, variant="primary", size="md", disabled, loading, onClic
 
 function Sel({ label,id,options,value,onChange,required }) {
   return (<div>
-    {label && <label htmlFor={id} style={{ display:"block",fontSize:13,fontWeight:600,color:T.slate[700],marginBottom:6 }}>{label}</label>}
+    {label && <label htmlFor={id} style={{ display:"block",fontSize:12,fontWeight:600,color:T.gray[500],marginBottom:8,letterSpacing:"0.04em",textTransform:"uppercase" }}>{label}</label>}
     <select id={id} value={value} onChange={e=>onChange(e.target.value)} required={required}
-      style={{ width:"100%",padding:"10px 12px",borderRadius:T.radius.md,border:`1px solid ${T.slate[300]}`,fontSize:14,color:T.slate[800],background:"#fff",outline:"none" }}>
+      style={{ width:"100%",padding:"12px 14px",borderRadius:T.radius.md,border:`1px solid ${T.gray[200]}`,fontSize:15,color:T.black,background:T.white,outline:"none",fontFamily:T.font,appearance:"none",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23737373' stroke-width='1.5'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 14px center" }}>
       {options.map(o => <option key={typeof o==="string"?o:o.value} value={typeof o==="string"?o:o.value}>{typeof o==="string"?o:o.label}</option>)}
     </select>
   </div>);
@@ -421,38 +382,43 @@ function Sel({ label,id,options,value,onChange,required }) {
 function Inp({ label,id,value,onChange,placeholder,required,error,type="text",multiline }) {
   const Tag = multiline ? "textarea" : "input";
   return (<div>
-    {label && <label htmlFor={id} style={{ display:"block",fontSize:13,fontWeight:600,color:T.slate[700],marginBottom:6 }}>{label}</label>}
+    {label && <label htmlFor={id} style={{ display:"block",fontSize:12,fontWeight:600,color:T.gray[500],marginBottom:8,letterSpacing:"0.04em",textTransform:"uppercase" }}>{label}</label>}
     <Tag id={id} type={multiline?undefined:type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} required={required}
       rows={multiline?3:undefined}
-      style={{ width:"100%",padding:"10px 12px",borderRadius:T.radius.md,border:`1px solid ${error?T.rose[500]:T.slate[300]}`,fontSize:14,color:T.slate[800],outline:"none",boxSizing:"border-box",fontFamily:"inherit",resize:multiline?"vertical":"none" }}/>
-    {error && <p style={{ fontSize:12,color:T.rose[500],marginTop:4 }}>{error}</p>}
+      style={{ width:"100%",padding:"12px 14px",borderRadius:T.radius.md,border:`1px solid ${error?T.red:T.gray[200]}`,fontSize:15,color:T.black,outline:"none",boxSizing:"border-box",fontFamily:T.font,resize:multiline?"vertical":"none",transition:"border-color .2s" }}/>
+    {error && <p style={{ fontSize:12,color:T.red,marginTop:6 }}>{error}</p>}
   </div>);
 }
 
-function Card({ children, style:sx, highlight, ...p }) {
-  return <div style={{ background:"#fff",borderRadius:T.radius.lg,border:`1px solid ${highlight||T.slate[200]}`,boxShadow:T.shadow.md,...sx }} {...p}>{children}</div>;
+function Card({ children, style:sx, ...p }) {
+  return <div style={{ background:T.white,borderRadius:T.radius.lg,border:`1px solid ${T.gray[200]}`,boxShadow:T.shadow.sm,...sx }} {...p}>{children}</div>;
 }
 
-function Badge({ children, variant="default" }) {
-  const vs = { default:{bg:T.slate[100],c:T.slate[600]}, primary:{bg:T.primary[100],c:T.primary[700]}, success:{bg:T.emerald[100],c:T.emerald[700]}, warning:{bg:T.amber[100],c:T.amber[700]}, danger:{bg:T.rose[100],c:T.rose[600]}, ai:{bg:T.violet[100],c:T.violet[700]} };
+function Tag({ children, variant="default" }) {
+  const vs = {
+    default:{ bg:T.gray[100],c:T.gray[600] },
+    accent:{ bg:T.accentLt,c:T.accent },
+    green:{ bg:T.greenLt,c:T.green },
+    amber:{ bg:T.amberLt,c:"#8B6914" },
+    red:{ bg:T.redLt,c:T.red },
+  };
   const v=vs[variant]||vs.default;
-  return <span style={{ display:"inline-flex",alignItems:"center",padding:"2px 10px",borderRadius:T.radius.full,fontSize:12,fontWeight:600,background:v.bg,color:v.c }}>{children}</span>;
+  return <span style={{ display:"inline-flex",alignItems:"center",padding:"3px 10px",borderRadius:T.radius.full,fontSize:11,fontWeight:600,background:v.bg,color:v.c,letterSpacing:"0.02em",textTransform:"uppercase" }}>{children}</span>;
 }
 
-function Empty({ icon,title,desc }) {
-  return (<div style={{ textAlign:"center",padding:"48px 24px" }}>
-    <div style={{ fontSize:48,marginBottom:16 }}>{icon}</div>
-    <h3 style={{ fontSize:18,fontWeight:600,color:T.slate[700],marginBottom:8 }}>{title}</h3>
-    <p style={{ fontSize:14,color:T.slate[400],maxWidth:320,margin:"0 auto" }}>{desc}</p>
+function Empty({ title,desc }) {
+  return (<div style={{ textAlign:"center",padding:"64px 24px" }}>
+    <h3 style={{ fontSize:18,fontWeight:600,color:T.gray[700],marginBottom:8,letterSpacing:"-0.02em" }}>{title}</h3>
+    <p style={{ fontSize:14,color:T.gray[400],maxWidth:300,margin:"0 auto",lineHeight:1.6 }}>{desc}</p>
   </div>);
 }
 
 function Confirm({ open,title,msg,onOk,onNo,okLabel="Confirm",okVariant="danger" }) {
   if(!open) return null;
-  return (<div style={{ position:"fixed",inset:0,zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.4)",backdropFilter:"blur(4px)" }}>
-    <Card style={{ maxWidth:400,width:"90%",padding:24 }}>
-      <h3 style={{ fontSize:18,fontWeight:700,color:T.slate[800],marginBottom:8 }}>{title}</h3>
-      <p style={{ fontSize:14,color:T.slate[500],marginBottom:24 }}>{msg}</p>
+  return (<div style={{ position:"fixed",inset:0,zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)",backdropFilter:"blur(8px)" }}>
+    <Card style={{ maxWidth:400,width:"90%",padding:32 }}>
+      <h3 style={{ fontSize:20,fontWeight:700,color:T.black,marginBottom:8,letterSpacing:"-0.02em" }}>{title}</h3>
+      <p style={{ fontSize:14,color:T.gray[500],marginBottom:28,lineHeight:1.6 }}>{msg}</p>
       <div style={{ display:"flex",gap:12 }}>
         <Btn variant="outline" onClick={onNo} style={{ flex:1 }}>Cancel</Btn>
         <Btn variant={okVariant} onClick={onOk} style={{ flex:1 }}>{okLabel}</Btn>
@@ -462,17 +428,17 @@ function Confirm({ open,title,msg,onOk,onNo,okLabel="Confirm",okVariant="danger"
 }
 
 function ScoreRing({ score, size=48 }) {
-  const r = size/2 - 4;
+  const r = size/2 - 3;
   const circ = 2 * Math.PI * r;
   const offset = circ - (score/100) * circ;
-  const color = score >= 75 ? T.emerald[500] : score >= 50 ? T.amber[500] : T.slate[400];
+  const color = score >= 75 ? T.green : score >= 50 ? T.amber : T.gray[400];
   return (
     <div style={{ position:"relative",width:size,height:size,flexShrink:0 }}>
       <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.slate[200]} strokeWidth={3}/>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={3} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transition:"stroke-dashoffset .6s ease" }}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.gray[200]} strokeWidth={2}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={2} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transition:"stroke-dashoffset .6s ease" }}/>
       </svg>
-      <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color }}>
+      <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color }}>
         {score}
       </div>
     </div>
@@ -480,9 +446,9 @@ function ScoreRing({ score, size=48 }) {
 }
 
 function Spinner({ text="Loading..." }) {
-  return (<div style={{ textAlign:"center",padding:40 }}>
-    <div style={{ width:40,height:40,border:`3px solid ${T.slate[200]}`,borderTopColor:T.primary[500],borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 12px" }}/>
-    <p style={{ color:T.slate[400],fontSize:14 }}>{text}</p>
+  return (<div style={{ textAlign:"center",padding:48 }}>
+    <div style={{ width:32,height:32,border:`2px solid ${T.gray[200]}`,borderTopColor:T.black,borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 16px" }}/>
+    <p style={{ color:T.gray[400],fontSize:13,letterSpacing:"0.02em" }}>{text}</p>
   </div>);
 }
 
@@ -490,7 +456,7 @@ function Spinner({ text="Loading..." }) {
 
 function AuthModal({ open, onClose }) {
   const { user, updateUser, notify, isLive } = useApp();
-  const [mode, setMode] = useState("signin"); // signin | signup
+  const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -501,8 +467,7 @@ function AuthModal({ open, onClose }) {
 
   const handleAuth = async () => {
     if (!email || !password) return;
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       if (LIVE_MODE) {
         const data = mode === "signup"
@@ -510,68 +475,65 @@ function AuthModal({ open, onClose }) {
           : await supabase.auth_signIn(email, password);
         if (data.error || data.error_description) {
           setError(data.error_description || data.msg || "Authentication failed");
-          setLoading(false);
-          return;
+          setLoading(false); return;
         }
         if (data.access_token && data.user) {
           updateUser({ id: data.user.id, displayName: name || email.split("@")[0], isAnonymous: false, email });
         }
       } else {
-        // Demo mode — simulate auth
         updateUser({ displayName: name || email.split("@")[0], isAnonymous: false, email });
       }
-      notify(mode === "signup" ? "Account created! Welcome to Diaper Drive." : "Welcome back!", "success");
+      notify(mode === "signup" ? "Account created." : "Welcome back.", "success");
       onClose();
-    } catch (e) {
-      setError("Connection failed. Please try again.");
-    }
+    } catch (e) { setError("Connection failed."); }
     setLoading(false);
   };
 
   const handleAnon = () => {
-    updateUser({ displayName: "Anonymous Helper", isAnonymous: true });
-    notify("Continuing as guest. You can create an account anytime.", "info");
+    updateUser({ displayName: "Anonymous", isAnonymous: true });
+    notify("Continuing as guest.", "info");
     onClose();
   };
 
   return (
-    <div style={{ position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.5)",backdropFilter:"blur(6px)" }}>
-      <Card style={{ maxWidth:420,width:"92%",padding:32 }}>
-        <div style={{ textAlign:"center",marginBottom:24 }}>
-          <span style={{ fontSize:36 }}>🧸</span>
-          <h2 style={{ fontSize:22,fontWeight:700,color:T.slate[800],marginTop:8 }}>
-            {mode === "signup" ? "Join Diaper Drive" : "Welcome Back"}
+    <div style={{ position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)",backdropFilter:"blur(12px)" }}>
+      <Card style={{ maxWidth:420,width:"92%",padding:"40px 36px",position:"relative" }}>
+        <div style={{ marginBottom:32 }}>
+          <h2 style={{ fontSize:28,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:6 }}>
+            {mode === "signup" ? "Create account" : "Sign in"}
           </h2>
-          <p style={{ fontSize:14,color:T.slate[500],marginTop:4 }}>
-            {mode === "signup" ? "Create an account to start helping families" : "Sign in to your account"}
+          <p style={{ fontSize:14,color:T.gray[500],lineHeight:1.5 }}>
+            {mode === "signup" ? "Join the community" : "Welcome back to Diaper Drive"}
           </p>
         </div>
-        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-          {mode === "signup" && <Inp label="Display Name" id="auth-name" value={name} onChange={setName} placeholder="How should we call you?" />}
+        <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+          {mode === "signup" && <Inp label="Name" id="auth-name" value={name} onChange={setName} placeholder="Your name" />}
           <Inp label="Email" id="auth-email" value={email} onChange={setEmail} placeholder="you@example.com" type="email" />
-          <Inp label="Password" id="auth-pass" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
-          {error && <p style={{ fontSize:13,color:T.rose[500],margin:0 }}>{error}</p>}
+          <Inp label="Password" id="auth-pass" value={password} onChange={setPassword} placeholder="Enter password" type="password" />
+          {error && <p style={{ fontSize:13,color:T.red,margin:0 }}>{error}</p>}
           <Btn onClick={handleAuth} loading={loading}>{mode === "signup" ? "Create Account" : "Sign In"}</Btn>
           <div style={{ textAlign:"center" }}>
             <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-              style={{ background:"none",border:"none",color:T.primary[600],fontSize:13,fontWeight:600,cursor:"pointer",padding:4 }}>
-              {mode === "signup" ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
+              style={{ background:"none",border:"none",color:T.gray[500],fontSize:13,fontWeight:500,cursor:"pointer",padding:4 }}>
+              {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
             </button>
           </div>
-          <div style={{ display:"flex",alignItems:"center",gap:12,margin:"8px 0" }}>
-            <div style={{ flex:1,height:1,background:T.slate[200] }}/>
-            <span style={{ fontSize:12,color:T.slate[400] }}>or</span>
-            <div style={{ flex:1,height:1,background:T.slate[200] }}/>
+          <div style={{ display:"flex",alignItems:"center",gap:16,margin:"4px 0" }}>
+            <div style={{ flex:1,height:1,background:T.gray[200] }}/>
+            <span style={{ fontSize:11,color:T.gray[400],letterSpacing:"0.05em",textTransform:"uppercase" }}>or</span>
+            <div style={{ flex:1,height:1,background:T.gray[200] }}/>
           </div>
           <Btn variant="outline" onClick={handleAnon}>Continue as Guest</Btn>
         </div>
-        <button onClick={onClose} style={{ position:"absolute",top:16,right:16,background:"none",border:"none",fontSize:20,color:T.slate[400],cursor:"pointer" }}>×</button>
+        <button onClick={onClose} style={{ position:"absolute",top:20,right:20,background:"none",border:"none",fontSize:18,color:T.gray[400],cursor:"pointer",padding:4 }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </button>
       </Card>
     </div>
   );
 }
 
-// ── SECTION: Dashboard View ─────────────────────────────────────────────────
+// ── SECTION: Dashboard ──────────────────────────────────────────────────────
 
 function DashboardView() {
   const { store } = useApp();
@@ -580,75 +542,71 @@ function DashboardView() {
 
   return (
     <div>
-      {/* Hero Stats */}
-      <Card style={{ padding:24, marginBottom:24, background:`linear-gradient(135deg, ${T.primary[600]} 0%, ${T.violet[600]} 100%)` }}>
-        <h2 style={{ fontSize:20,fontWeight:700,color:"#fff",marginBottom:4 }}>Community Impact</h2>
-        <p style={{ fontSize:13,color:"rgba(255,255,255,.7)",marginBottom:20 }}>Real-time overview of your Diaper Drive community</p>
-        <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12 }}>
-          {[
-            { icon:"📦",val:stats.active,label:"Active Requests" },
-            { icon:"✅",val:stats.fulfilled,label:"Fulfilled" },
-            { icon:"📍",val:stats.zips,label:"Communities" },
-            { icon:"🤝",val:stats.totalMatches,label:"Matches Made" },
-          ].map(s => (
-            <div key={s.label} style={{ background:"rgba(255,255,255,.15)",borderRadius:T.radius.md,padding:"12px 8px",textAlign:"center",backdropFilter:"blur(8px)" }}>
-              <div style={{ fontSize:20,marginBottom:4 }}>{s.icon}</div>
-              <div style={{ fontSize:24,fontWeight:700,color:"#fff" }}>{s.val}</div>
-              <div style={{ fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:500 }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      {/* Hero */}
+      <div style={{ marginBottom:40 }}>
+        <h2 style={{ fontSize:36,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:6,lineHeight:1.1 }}>
+          Community Impact
+        </h2>
+        <p style={{ fontSize:15,color:T.gray[500],lineHeight:1.5 }}>Real-time overview of your network</p>
+      </div>
+
+      {/* Stats Grid */}
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:40 }}>
+        {[
+          { val:stats.active, label:"Active" },
+          { val:stats.fulfilled, label:"Fulfilled" },
+          { val:stats.zips, label:"Areas" },
+          { val:stats.totalMatches, label:"Matched" },
+        ].map(s => (
+          <Card key={s.label} style={{ padding:"28px 20px",textAlign:"center" }}>
+            <div style={{ fontSize:32,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:4 }}>{s.val}</div>
+            <div style={{ fontSize:11,color:T.gray[400],fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase" }}>{s.label}</div>
+          </Card>
+        ))}
+      </div>
 
       {/* Recent Activity */}
-      <div style={{ marginBottom:16 }}>
-        <h3 style={{ fontSize:17,fontWeight:700,color:T.slate[700],marginBottom:12 }}>Recent Requests</h3>
-        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+      <div style={{ marginBottom:40 }}>
+        <h3 style={{ fontSize:13,fontWeight:600,color:T.gray[400],marginBottom:16,letterSpacing:"0.06em",textTransform:"uppercase" }}>Recent Requests</h3>
+        <div style={{ display:"flex",flexDirection:"column",gap:1,background:T.gray[200],borderRadius:T.radius.lg,overflow:"hidden" }}>
           {recentRequests.map(req => {
-            const urg = URGENCY_LEVELS.find(u => u.value === req.urgency) || URGENCY_LEVELS[1];
-            const profile = store.getProfile(req.seekerId);
+            const urgVar = req.urgency==="high"?"red":req.urgency==="medium"?"amber":"green";
             return (
-              <Card key={req.id} style={{ padding:14 }}>
-                <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                  <div style={{ width:40,height:40,borderRadius:T.radius.md,background:urg.color[50],display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>👶</div>
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
-                      <span style={{ fontWeight:600,fontSize:14,color:T.slate[800] }}>Size {req.size}</span>
-                      <Badge variant={req.urgency==="high"?"danger":req.urgency==="medium"?"warning":"success"}>{req.urgency}</Badge>
-                      <span style={{ fontSize:12,color:T.slate[400] }}>· {timeAgo(req.createdAt)}</span>
-                    </div>
-                    {req.notes && <p style={{ fontSize:13,color:T.slate[500],marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{req.notes}</p>}
+              <div key={req.id} style={{ padding:"16px 20px",background:T.white,display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                    <span style={{ fontWeight:600,fontSize:15,color:T.black,letterSpacing:"-0.01em" }}>Size {req.size}</span>
+                    <Tag variant={urgVar}>{req.urgency}</Tag>
+                    <span style={{ fontSize:12,color:T.gray[400] }}>{timeAgo(req.createdAt)}</span>
                   </div>
-                  <span style={{ fontSize:12,color:T.slate[400],flexShrink:0 }}>📍 {req.zipCode}</span>
+                  {req.notes && <p style={{ fontSize:13,color:T.gray[500],marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{req.notes}</p>}
                 </div>
-              </Card>
+                <span style={{ fontSize:13,color:T.gray[400],flexShrink:0,fontVariantNumeric:"tabular-nums" }}>{req.zipCode}</span>
+              </div>
             );
           })}
         </div>
       </div>
 
-      {/* AI Insight Card */}
-      <Card style={{ padding:20, background:`linear-gradient(135deg, ${T.violet[50]}, ${T.primary[50]})`, borderColor:T.violet[200] }}>
-        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:8 }}>
-          <span style={{ fontSize:20 }}>🤖</span>
-          <h3 style={{ fontSize:16,fontWeight:700,color:T.violet[700],margin:0 }}>AI Matching Insight</h3>
-        </div>
-        <p style={{ fontSize:13,color:T.slate[600],lineHeight:1.6 }}>
-          There are currently <strong>{stats.active} families</strong> waiting for help across <strong>{stats.zips} communities</strong>.
+      {/* AI Insight */}
+      <Card style={{ padding:"28px 24px",background:T.gray[100],borderColor:T.gray[200] }}>
+        <h3 style={{ fontSize:13,fontWeight:600,color:T.gray[400],marginBottom:12,letterSpacing:"0.06em",textTransform:"uppercase" }}>AI Insight</h3>
+        <p style={{ fontSize:15,color:T.gray[700],lineHeight:1.7 }}>
+          <strong>{stats.active} families</strong> waiting across <strong>{stats.zips} areas</strong>.
           {recentRequests.filter(r => r.urgency === "high").length > 0 &&
-            ` ${recentRequests.filter(r => r.urgency === "high").length} request${recentRequests.filter(r => r.urgency === "high").length > 1 ? "s are" : " is"} marked urgent.`}
-          {" "}Switch to the <strong>Give</strong> tab and try AI Smart Match to find the families who need your help most.
+            ` ${recentRequests.filter(r => r.urgency === "high").length} urgent.`}
+          {" "}Head to <strong>Give</strong> and run Smart Match.
         </p>
       </Card>
     </div>
   );
 }
 
-// ── SECTION: Give View (Manual + AI Matching) ───────────────────────────────
+// ── SECTION: Give View ──────────────────────────────────────────────────────
 
 function GiveView() {
   const { user, store, notify } = useApp();
-  const [mode, setMode] = useState("manual"); // manual | ai
+  const [mode, setMode] = useState("manual");
   const [size, setSize] = useState("4");
   const [radius, setRadius] = useState("5");
   const [zip, setZip] = useState(user.zipCode || "");
@@ -656,8 +614,6 @@ function GiveView() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [contactId, setContactId] = useState(null);
-
-  // AI-specific state
   const [aiSizes, setAiSizes] = useState(["4"]);
   const [aiResults, setAiResults] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -682,16 +638,13 @@ function GiveView() {
         active = store.getActiveRequests().filter(r => r.seekerId !== user.id && r.size === size);
       }
       const withDist = active.map(r => ({
-        ...r,
-        distance: Math.abs(parseInt(r.zipCode||"0")-parseInt(zip||"0"))*0.3 + Math.random()*1.5,
+        ...r, distance: Math.abs(parseInt(r.zipCode||"0")-parseInt(zip||"0"))*0.3 + Math.random()*1.5,
       })).filter(r => r.distance <= parseFloat(radius)).sort((a,b) => a.distance - b.distance);
       setResults(withDist);
     } catch (e) {
-      // Fallback to demo store on error
       const active = store.getActiveRequests().filter(r => r.seekerId !== user.id && r.size === size);
       const withDist = active.map(r => ({
-        ...r,
-        distance: Math.abs(parseInt(r.zipCode||"0")-parseInt(zip||"0"))*0.3 + Math.random()*1.5,
+        ...r, distance: Math.abs(parseInt(r.zipCode||"0")-parseInt(zip||"0"))*0.3 + Math.random()*1.5,
       })).filter(r => r.distance <= parseFloat(radius)).sort((a,b) => a.distance - b.distance);
       setResults(withDist);
     }
@@ -700,18 +653,16 @@ function GiveView() {
 
   const handleAIMatch = async () => {
     if (!validZip(zip)) { setZipErr("Enter a valid 5-digit zip"); return; }
-    if (aiSizes.length === 0) { notify("Select at least one diaper size you have available","error"); return; }
+    if (aiSizes.length === 0) { notify("Select at least one size","error"); return; }
     setZipErr(""); setAiLoading(true);
     try {
       const matches = await runAIMatching({ donorZip:zip, donorSizes:aiSizes, donorRadius:radius, donorId:user.id, store });
       setAiResults(matches);
-    } catch(e) { notify("AI matching failed. Please try again.","error"); }
+    } catch(e) { notify("Matching failed. Try again.","error"); }
     setAiLoading(false);
   };
 
-  const toggleAiSize = (sz) => {
-    setAiSizes(prev => prev.includes(sz) ? prev.filter(s => s !== sz) : [...prev, sz]);
-  };
+  const toggleAiSize = (sz) => setAiSizes(prev => prev.includes(sz) ? prev.filter(s => s !== sz) : [...prev, sz]);
 
   const handleAcceptMatch = async (match) => {
     setAcceptingId(match.id);
@@ -723,65 +674,57 @@ function GiveView() {
         await mTbl.update({ status: "accepted" }, { "id": `eq.${match.id}` });
         const rTbl = await supabase.from("requests");
         await rTbl.update({ status: "matched" }, { "id": `eq.${match.requestId}` });
-      } catch (e) { /* local update succeeded */ }
+      } catch (e) {}
     }
-    notify(`Match accepted! You'll help ${match._seekerName} with Size ${match._request.size}.`, "success");
+    notify(`Match accepted — helping ${match._seekerName} with Size ${match._request.size}.`, "success");
     setAcceptingId(null);
     setAiResults(prev => prev?.filter(m => m.id !== match.id));
   };
 
   return (
     <div>
+      <div style={{ marginBottom:32 }}>
+        <h2 style={{ fontSize:36,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:6,lineHeight:1.1 }}>Give</h2>
+        <p style={{ fontSize:15,color:T.gray[500] }}>Find families who need your help</p>
+      </div>
+
       {/* Mode Toggle */}
-      <div style={{ display:"flex",background:T.slate[100],borderRadius:T.radius.md,padding:3,marginBottom:20,gap:2 }}>
-        {[{ id:"manual",label:"Manual Search",ico:"🔍" },{ id:"ai",label:"AI Smart Match",ico:"🤖" }].map(m => (
+      <div style={{ display:"flex",background:T.gray[100],borderRadius:T.radius.md,padding:3,marginBottom:28,gap:2 }}>
+        {[{ id:"manual",label:"Search" },{ id:"ai",label:"Smart Match" }].map(m => (
           <button key={m.id} onClick={()=>setMode(m.id)}
-            style={{ flex:1,padding:"8px 12px",borderRadius:T.radius.sm,border:"none",fontSize:13,fontWeight:600,cursor:"pointer",
-              transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-              background:mode===m.id?(m.id==="ai"?`linear-gradient(135deg,${T.violet[600]},${T.primary[600]})`:"#fff"):"transparent",
-              color:mode===m.id?(m.id==="ai"?"#fff":T.slate[800]):T.slate[500],
+            style={{ flex:1,padding:"10px 16px",borderRadius:T.radius.sm,border:"none",fontSize:13,fontWeight:600,cursor:"pointer",
+              transition:"all .2s", fontFamily:T.font, letterSpacing:"-0.01em",
+              background:mode===m.id?T.white:"transparent",
+              color:mode===m.id?T.black:T.gray[400],
               boxShadow:mode===m.id?T.shadow.sm:"none" }}>
-            <span>{m.ico}</span>{m.label}
+            {m.label}
           </button>
         ))}
       </div>
 
-      {/* Shared Inputs */}
-      <Card style={{ padding:24,marginBottom:24 }}>
-        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
-          <span style={{ fontSize:24 }}>{mode==="ai"?"🤖":"🔍"}</span>
-          <div>
-            <h2 style={{ fontSize:20,fontWeight:700,color:T.slate[800],margin:0 }}>
-              {mode==="ai"?"AI Smart Match":"Find a Family to Help"}
-            </h2>
-            <p style={{ fontSize:13,color:T.slate[500],margin:0 }}>
-              {mode==="ai"?"Claude AI analyzes urgency, recency, and need to find optimal matches":"Search for families near you by size and distance"}
-            </p>
-          </div>
-        </div>
-
+      {/* Search Form */}
+      <Card style={{ padding:28,marginBottom:28 }}>
         {mode === "manual" ? (
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-            <Sel label="Diaper Size" id="s-size" options={DIAPER_SIZES} value={size} onChange={setSize}/>
-            <Sel label="Delivery Radius" id="s-rad" options={RADIUS_OPTIONS} value={radius} onChange={setRadius}/>
-            <Inp label="Your Zip Code" id="s-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="e.g., 90210" error={zipErr}/>
-            <div style={{ display:"flex",alignItems:"flex-end" }}>
-              <Btn onClick={handleManualSearch} loading={loading}>Search Nearby</Btn>
+          <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+              <Sel label="Diaper Size" id="s-size" options={DIAPER_SIZES} value={size} onChange={setSize}/>
+              <Sel label="Radius" id="s-rad" options={RADIUS_OPTIONS} value={radius} onChange={setRadius}/>
             </div>
+            <Inp label="Zip Code" id="s-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="90210" error={zipErr}/>
+            <Btn onClick={handleManualSearch} loading={loading}>Search</Btn>
           </div>
         ) : (
-          <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-            {/* Multi-size picker */}
+          <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
             <div>
-              <label style={{ display:"block",fontSize:13,fontWeight:600,color:T.slate[700],marginBottom:8 }}>Sizes You Have Available</label>
+              <label style={{ display:"block",fontSize:12,fontWeight:600,color:T.gray[500],marginBottom:10,letterSpacing:"0.04em",textTransform:"uppercase" }}>Sizes Available</label>
               <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
                 {DIAPER_SIZES.map(ds => {
                   const sel = aiSizes.includes(ds.value);
                   return (
                     <button key={ds.value} onClick={()=>toggleAiSize(ds.value)}
-                      style={{ padding:"6px 14px",borderRadius:T.radius.full,fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",
-                        background:sel?T.primary[600]:"#fff", color:sel?"#fff":T.slate[600],
-                        border:`1.5px solid ${sel?T.primary[600]:T.slate[300]}` }}>
+                      style={{ padding:"8px 16px",borderRadius:T.radius.full,fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",fontFamily:T.font,
+                        background:sel?T.black:T.white, color:sel?T.white:T.gray[500],
+                        border:`1.5px solid ${sel?T.black:T.gray[300]}` }}>
                       {ds.short || ds.value}
                     </button>
                   );
@@ -789,11 +732,11 @@ function GiveView() {
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-              <Inp label="Your Zip Code" id="ai-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="e.g., 90210" error={zipErr}/>
-              <Sel label="Delivery Radius" id="ai-rad" options={RADIUS_OPTIONS} value={radius} onChange={setRadius}/>
+              <Inp label="Zip Code" id="ai-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="90210" error={zipErr}/>
+              <Sel label="Radius" id="ai-rad" options={RADIUS_OPTIONS} value={radius} onChange={setRadius}/>
             </div>
-            <Btn variant="ai" onClick={handleAIMatch} loading={aiLoading}>
-              {aiLoading ? "Claude is analyzing requests..." : "✨ Find Smart Matches"}
+            <Btn onClick={handleAIMatch} loading={aiLoading}>
+              {aiLoading ? "Analyzing..." : "Find Matches"}
             </Btn>
           </div>
         )}
@@ -802,39 +745,34 @@ function GiveView() {
       {/* Manual Results */}
       {mode === "manual" && (
         <>
-          {results === null && !loading && <Empty icon="🗺️" title="Ready to help?" desc="Enter your zip code and search to find families nearby."/>}
-          {loading && <Spinner text="Searching your area..."/>}
-          {results && !loading && results.length === 0 && <Empty icon="🔎" title="No matches found" desc="Try a wider radius or different size."/>}
+          {results === null && !loading && <Empty title="Ready to search" desc="Enter your zip code to find families nearby."/>}
+          {loading && <Spinner text="Searching..."/>}
+          {results && !loading && results.length === 0 && <Empty title="No results" desc="Try a wider radius or different size."/>}
           {results && !loading && results.length > 0 && (
             <div>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-                <h3 style={{ fontSize:16,fontWeight:600,color:T.slate[700] }}>{results.length} {results.length===1?"family":"families"} found</h3>
-                <Badge variant="primary">Size {size}</Badge>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                <span style={{ fontSize:13,fontWeight:600,color:T.gray[400],letterSpacing:"0.04em",textTransform:"uppercase" }}>{results.length} found</span>
+                <Tag variant="default">Size {size}</Tag>
               </div>
-              <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+              <div style={{ display:"flex",flexDirection:"column",gap:1,background:T.gray[200],borderRadius:T.radius.lg,overflow:"hidden" }}>
                 {results.map(need => {
-                  const urg = URGENCY_LEVELS.find(u=>u.value===need.urgency)||URGENCY_LEVELS[1];
+                  const urgVar = need.urgency==="high"?"red":need.urgency==="medium"?"amber":"green";
                   return (
-                    <Card key={need.id} style={{ padding:18 }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12 }}>
-                        <div>
-                          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
-                            <span style={{ fontSize:18 }}>👶</span>
-                            <h4 style={{ fontSize:16,fontWeight:700,color:T.primary[700],margin:0 }}>Needs Size {need.size}</h4>
-                            <Badge variant={need.urgency==="high"?"danger":need.urgency==="medium"?"warning":"success"}>{need.urgency}</Badge>
-                          </div>
-                          <div style={{ display:"flex",gap:12,flexWrap:"wrap",marginTop:4 }}>
-                            <span style={{ fontSize:13,color:T.slate[500] }}>📍 Near {need.zipCode}</span>
-                            <span style={{ fontSize:13,color:T.slate[500] }}>🕐 {timeAgo(need.createdAt)}</span>
-                          </div>
-                          {need.notes && <p style={{ fontSize:13,color:T.slate[500],marginTop:6,fontStyle:"italic" }}>"{need.notes}"</p>}
+                    <div key={need.id} style={{ padding:"20px 24px",background:T.white,display:"flex",justifyContent:"space-between",alignItems:"center",gap:16 }}>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:4 }}>
+                          <span style={{ fontSize:16,fontWeight:700,color:T.black }}>Size {need.size}</span>
+                          <Tag variant={urgVar}>{need.urgency}</Tag>
                         </div>
-                        <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8 }}>
-                          <Badge variant={need.distance<3?"success":need.distance<8?"warning":"default"}>{need.distance.toFixed(1)} mi</Badge>
-                          <Btn variant="primary" size="sm" onClick={()=>{setContactId(need.id);setTimeout(()=>{notify(`Arranged drop-off for Size ${need.size} near ${need.zipCode}!`);setContactId(null);},600);}} loading={contactId===need.id} style={{ width:"auto" }}>Arrange Drop-off</Btn>
+                        <div style={{ display:"flex",gap:16,fontSize:13,color:T.gray[400] }}>
+                          <span>{need.zipCode}</span>
+                          <span>{timeAgo(need.createdAt)}</span>
+                          <span>{need.distance.toFixed(1)} mi</span>
                         </div>
+                        {need.notes && <p style={{ fontSize:13,color:T.gray[500],marginTop:6 }}>{need.notes}</p>}
                       </div>
-                    </Card>
+                      <Btn variant="primary" size="sm" onClick={()=>{setContactId(need.id);setTimeout(()=>{notify(`Drop-off arranged for Size ${need.size}.`);setContactId(null);},600);}} loading={contactId===need.id} style={{ width:"auto",flexShrink:0 }}>Arrange</Btn>
+                    </div>
                   );
                 })}
               </div>
@@ -846,44 +784,39 @@ function GiveView() {
       {/* AI Results */}
       {mode === "ai" && (
         <>
-          {aiResults === null && !aiLoading && <Empty icon="🤖" title="AI-Powered Matching" desc="Select your available sizes and let Claude find the families who need your help most."/>}
-          {aiLoading && <Spinner text="Claude is analyzing urgency, recency, and proximity..."/>}
-          {aiResults && !aiLoading && aiResults.length === 0 && <Empty icon="🔎" title="No AI matches found" desc="Try adding more sizes or expanding your delivery radius."/>}
+          {aiResults === null && !aiLoading && <Empty title="Smart Match" desc="Select your sizes and let AI find the best matches."/>}
+          {aiLoading && <Spinner text="Analyzing requests..."/>}
+          {aiResults && !aiLoading && aiResults.length === 0 && <Empty title="No matches" desc="Try adding more sizes or expanding your radius."/>}
           {aiResults && !aiLoading && aiResults.length > 0 && (
             <div>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-                <h3 style={{ fontSize:16,fontWeight:600,color:T.violet[700] }}>
-                  ✨ {aiResults.length} AI-Recommended {aiResults.length===1?"Match":"Matches"}
-                </h3>
-                <Badge variant="ai">Powered by Claude</Badge>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                <span style={{ fontSize:13,fontWeight:600,color:T.gray[400],letterSpacing:"0.04em",textTransform:"uppercase" }}>{aiResults.length} matches</span>
+                <Tag variant="accent">AI Ranked</Tag>
               </div>
-              <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+              <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
                 {aiResults.map((match,i) => (
-                  <Card key={match.id} highlight={i===0?T.violet[300]:undefined} style={{ padding:20, background:i===0?`linear-gradient(135deg, ${T.violet[50]}, #fff)`:undefined }}>
-                    <div style={{ display:"flex",gap:16,alignItems:"flex-start" }}>
+                  <Card key={match.id} style={{ padding:24, borderColor:i===0?T.accent:T.gray[200] }}>
+                    <div style={{ display:"flex",gap:20,alignItems:"flex-start" }}>
                       <ScoreRing score={match.score} size={52}/>
                       <div style={{ flex:1,minWidth:0 }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap" }}>
-                          <h4 style={{ fontSize:16,fontWeight:700,color:T.slate[800],margin:0 }}>{match._seekerName}</h4>
-                          <Badge variant="primary">Size {match._request.size}</Badge>
-                          <Badge variant={match._request.urgency==="high"?"danger":match._request.urgency==="medium"?"warning":"success"}>{match._request.urgency}</Badge>
-                          {i===0 && <Badge variant="ai">Best Match</Badge>}
+                        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap" }}>
+                          <span style={{ fontSize:16,fontWeight:700,color:T.black,letterSpacing:"-0.01em" }}>{match._seekerName}</span>
+                          <Tag variant="default">Size {match._request.size}</Tag>
+                          <Tag variant={match._request.urgency==="high"?"red":match._request.urgency==="medium"?"amber":"green"}>{match._request.urgency}</Tag>
+                          {i===0 && <Tag variant="accent">Top Match</Tag>}
                         </div>
-                        <div style={{ display:"flex",gap:12,marginBottom:8,flexWrap:"wrap" }}>
-                          <span style={{ fontSize:12,color:T.slate[400] }}>📍 {match.distance.toFixed(1)} mi away</span>
-                          <span style={{ fontSize:12,color:T.slate[400] }}>🕐 {timeAgo(match._request.createdAt)}</span>
-                          {match._request.timesHelped===0 && <span style={{ fontSize:12,color:T.violet[600],fontWeight:600 }}>⭐ First-time request</span>}
+                        <div style={{ display:"flex",gap:16,marginBottom:10,fontSize:12,color:T.gray[400] }}>
+                          <span>{match.distance.toFixed(1)} mi</span>
+                          <span>{timeAgo(match._request.createdAt)}</span>
+                          {match._request.timesHelped===0 && <span style={{ color:T.accent,fontWeight:600 }}>First request</span>}
                         </div>
-                        {/* AI Reasoning */}
-                        <div style={{ background:T.violet[50],borderRadius:T.radius.sm,padding:"8px 12px",marginBottom:10 }}>
-                          <p style={{ fontSize:13,color:T.violet[700],margin:0,lineHeight:1.5 }}>
-                            <strong>AI Insight:</strong> {match.reason}
-                          </p>
+                        <div style={{ background:T.gray[100],borderRadius:T.radius.sm,padding:"10px 14px",marginBottom:12 }}>
+                          <p style={{ fontSize:13,color:T.gray[600],margin:0,lineHeight:1.6 }}>{match.reason}</p>
                         </div>
-                        {match._request.notes && <p style={{ fontSize:13,color:T.slate[500],fontStyle:"italic",marginBottom:8 }}>"{match._request.notes}"</p>}
+                        {match._request.notes && <p style={{ fontSize:13,color:T.gray[500],marginBottom:12 }}>{match._request.notes}</p>}
                         <div style={{ display:"flex",gap:8 }}>
-                          <Btn variant="ai" size="sm" onClick={()=>handleAcceptMatch(match)} loading={acceptingId===match.id} style={{ width:"auto" }}>Accept Match</Btn>
-                          <Btn variant="ghost" size="sm" style={{ width:"auto",color:T.slate[400] }}>Skip</Btn>
+                          <Btn variant="primary" size="sm" onClick={()=>handleAcceptMatch(match)} loading={acceptingId===match.id} style={{ width:"auto" }}>Accept</Btn>
+                          <Btn variant="ghost" size="sm" style={{ width:"auto" }}>Skip</Btn>
                         </div>
                       </div>
                     </div>
@@ -917,17 +850,15 @@ function NeedView() {
     if (!/^\d{5}$/.test(zip)) { setZipErr("Enter a valid 5-digit zip"); return; }
     setZipErr(""); setSubmitting(true);
     try {
-      // Always add to local store for immediate UI feedback
       store.createRequest({ seekerId:user.id, size, zipCode:zip, urgency, notes:notes.trim() });
-      // Also persist to Supabase when live
       if (LIVE_MODE) {
         const tbl = await supabase.from("requests");
         await tbl.insert([{ seeker_id:user.id, size, zip_code:zip, urgency, notes:notes.trim() || null }]);
       }
-      notify("Request posted! Donors in your area will see it.","success");
+      notify("Request posted.","success");
       setSize("Newborn"); setNotes("");
     } catch (err) {
-      notify("Saved locally but couldn't sync to server.","info");
+      notify("Saved locally.","info");
     }
     setSubmitting(false);
   };
@@ -939,7 +870,7 @@ function NeedView() {
       try {
         const tbl = await supabase.from("requests");
         await tbl.delete({ "id": `eq.${delTarget}` });
-      } catch (e) { /* local delete succeeded, that's fine */ }
+      } catch (e) {}
     }
     notify("Request removed.","info");
     setDelTarget(null);
@@ -947,57 +878,52 @@ function NeedView() {
 
   return (
     <div>
-      <Card style={{ padding:24,marginBottom:24 }}>
-        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
-          <span style={{ fontSize:24 }}>📝</span>
-          <div>
-            <h2 style={{ fontSize:20,fontWeight:700,color:T.slate[800],margin:0 }}>Create a Request</h2>
-            <p style={{ fontSize:13,color:T.slate[500],margin:0 }}>Tell your community what you need — AI will help match you with donors</p>
+      <div style={{ marginBottom:32 }}>
+        <h2 style={{ fontSize:36,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:6,lineHeight:1.1 }}>Request</h2>
+        <p style={{ fontSize:15,color:T.gray[500] }}>Tell your community what you need</p>
+      </div>
+
+      <Card style={{ padding:28,marginBottom:40 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+            <Sel label="Size Needed" id="n-size" options={DIAPER_SIZES} value={size} onChange={setSize} required/>
+            <Inp label="Zip Code" id="n-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="02492" required error={zipErr}/>
           </div>
-        </div>
-        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
-            <Sel label="Diaper Size Needed" id="n-size" options={DIAPER_SIZES} value={size} onChange={setSize} required/>
-            <Inp label="Your Zip Code" id="n-zip" value={zip} onChange={v=>{setZip(v);setZipErr("");}} placeholder="e.g., 02492" required error={zipErr}/>
-          </div>
-          <Sel label="Urgency Level" id="n-urg" options={URGENCY_LEVELS} value={urgency} onChange={setUrgency}/>
-          <Inp label="Notes (optional)" id="n-notes" value={notes} onChange={setNotes} placeholder="Anything donors should know — e.g., twins, first baby, specific brand preferences..." multiline/>
-          <Btn variant="success" onClick={handleSubmit} loading={submitting}>Submit Request</Btn>
+          <Sel label="Urgency" id="n-urg" options={URGENCY_LEVELS} value={urgency} onChange={setUrgency}/>
+          <Inp label="Notes" id="n-notes" value={notes} onChange={setNotes} placeholder="Anything donors should know..." multiline/>
+          <Btn onClick={handleSubmit} loading={submitting}>Submit Request</Btn>
         </div>
       </Card>
 
-      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14 }}>
-        <h3 style={{ fontSize:17,fontWeight:700,color:T.slate[700] }}>My Active Requests</h3>
-        {myReqs.length > 0 && <Badge>{myReqs.length} active</Badge>}
+      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16 }}>
+        <span style={{ fontSize:13,fontWeight:600,color:T.gray[400],letterSpacing:"0.06em",textTransform:"uppercase" }}>My Requests</span>
+        {myReqs.length > 0 && <Tag>{myReqs.length} active</Tag>}
       </div>
       {myReqs.length === 0 ? (
-        <Empty icon="📋" title="No active requests" desc="Submit a request above and it'll appear here."/>
+        <Empty title="No active requests" desc="Submit a request above to get started."/>
       ) : (
-        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:1,background:T.gray[200],borderRadius:T.radius.lg,overflow:"hidden" }}>
           {myReqs.map(req => {
-            const urg = URGENCY_LEVELS.find(u=>u.value===req.urgency)||URGENCY_LEVELS[1];
+            const urgVar = req.urgency==="high"?"red":req.urgency==="medium"?"amber":"green";
             return (
-              <Card key={req.id} style={{ padding:16 }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                    <div style={{ width:42,height:42,borderRadius:T.radius.md,background:urg.color[50],display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>🧷</div>
-                    <div>
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ fontWeight:600,fontSize:15,color:T.slate[800] }}>Size {req.size}</span>
-                        <Badge variant={req.urgency==="high"?"danger":req.urgency==="medium"?"warning":"success"}>{req.urgency}</Badge>
-                      </div>
-                      <p style={{ fontSize:12,color:T.slate[400],margin:0 }}>Zip {req.zipCode} · {timeAgo(req.createdAt)}</p>
-                    </div>
-                     </div>
-                  <Btn variant="ghost" size="sm" onClick={()=>setDelTarget(req.id)} style={{ color:T.rose[500],width:"auto" }}>Remove</Btn>
+              <div key={req.id} style={{ padding:"16px 20px",background:T.white,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div>
+                  <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:2 }}>
+                    <span style={{ fontWeight:600,fontSize:15,color:T.black }}>Size {req.size}</span>
+                    <Tag variant={urgVar}>{req.urgency}</Tag>
+                  </div>
+                  <p style={{ fontSize:12,color:T.gray[400] }}>{req.zipCode} · {timeAgo(req.createdAt)}</p>
                 </div>
-                {req.notes && <p style={{ fontSize:13,color:T.slate[500],marginTop:8,paddingLeft:54,fontStyle:"italic" }}>"{req.notes}"</p>}
-              </Card>
+                <button onClick={()=>setDelTarget(req.id)} style={{ background:"none",border:"none",cursor:"pointer",color:T.gray[400],padding:8,transition:"color .2s" }}
+                  onMouseEnter={e=>e.target.style.color=T.red} onMouseLeave={e=>e.target.style.color=T.gray[400]}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                </button>
+              </div>
             );
           })}
         </div>
       )}
-      <Confirm open={!!delTarget} title="Remove request?" msg="This will remove your diaper request. Donors will no longer see it." onOk={handleDelete} onNo={()=>setDelTarget(null)}/>
+      <Confirm open={!!delTarget} title="Remove request?" msg="This request will no longer be visible to donors." onOk={handleDelete} onNo={()=>setDelTarget(null)}/>
     </div>
   );
 }
@@ -1013,8 +939,8 @@ function ProfileView() {
 
   const handleSave = () => {
     updateUser({ displayName:name, zipCode:zip, role });
-    notify("Profile updated!","success");
-    saved(true);
+    notify("Profile updated.","success");
+    setSaved(true);
     setTimeout(()=>setSaved(false), 2000);
   };
 
@@ -1023,90 +949,57 @@ function ProfileView() {
 
   return (
     <div>
-      <Card style={{ padding:24,marginBottom:24 }}>
-        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
-          <div style={{ width:48,height:48,borderRadius:T.radius.full,background:`linear-gradient(135deg,${T.primary[500]},${T.violet[500]})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:20,fontWeight:700 }}>
-            {(name||"?")[0].toUpperCase()}
-          </div>
-          <div>
-            <h2 style={{ fontSize:20,fontWeight:700,color:T.slate[800],margin:0 }}>{name || "Your Profile"}</h2>
-            <p style={{ fontSize:13,color:T.slate[500],margin:0 }}>{user.isAnonymous ? "Guest account" : user.email || "Registered user"}</p>
-          </div>
-        </div>
-        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-          <Inp label="Display Name" id="p-name" value={name} onChange={setName} placeholder="How should others see you?"/>
-          <Inp label="Default Zip Code" id="p-zip" value={zip} onChange={setZip} placeholder="Your home zip code"/>
-          <Sel label="I am a..." id="p-role" options={[{value:"both",label:"Both donor & seeker"},{value:"donor",label:"Donor only"},{value:"seeker",label:"Seeker only"}]} value={role} onChange={setRole}/>
-          <Btn onClick={handleSave}>{saved?"✓ Saved":"Save Profile"}</Btn>
+      <div style={{ marginBottom:32 }}>
+        <h2 style={{ fontSize:36,fontWeight:700,color:T.black,letterSpacing:"-0.03em",marginBottom:6,lineHeight:1.1 }}>Profile</h2>
+        <p style={{ fontSize:15,color:T.gray[500] }}>{user.isAnonymous ? "Guest" : user.email || "Your account"}</p>
+      </div>
+
+      <Card style={{ padding:28,marginBottom:32 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+          <Inp label="Name" id="p-name" value={name} onChange={setName} placeholder="Your name"/>
+          <Inp label="Zip Code" id="p-zip" value={zip} onChange={setZip} placeholder="Home zip"/>
+          <Sel label="Role" id="p-role" options={[{value:"both",label:"Donor & Seeker"},{value:"donor",label:"Donor"},{value:"seeker",label:"Seeker"}]} value={role} onChange={setRole}/>
+          <Btn onClick={handleSave}>{saved?"Saved":"Save"}</Btn>
         </div>
       </Card>
 
-      {/* Donation History */}
+      {/* History */}
       {accepted.length > 0 && (
-        <Card style={{ padding:20,marginBottom:24 }}>
-          <h3 style={{ fontSize:17,fontWeight:700,color:T.slate[700],marginBottom:12 }}>My Donation History</h3>
-          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+        <div style={{ marginBottom:32 }}>
+          <span style={{ display:"block",fontSize:13,fontWeight:600,color:T.gray[400],marginBottom:16,letterSpacing:"0.06em",textTransform:"uppercase" }}>Donation History</span>
+          <div style={{ display:"flex",flexDirection:"column",gap:1,background:T.gray[200],borderRadius:T.radius.lg,overflow:"hidden" }}>
             {accepted.map(m => (
-              <div key={m.id} style={{ display:"flex",alignItems:"center",gap:12,padding:10,background:T.slate[50],borderRadius:T.radius.sm }}>
-                <span style={{ fontSize:16 }}>✅</span>
+              <div key={m.id} style={{ display:"flex",alignItems:"center",gap:16,padding:"14px 20px",background:T.white }}>
+                <ScoreRing score={m.score} size={36}/>
                 <div style={{ flex:1 }}>
-                  <span style={{ fontWeight:600,fontSize:14,color:T.slate[700] }}>Helped {m._seekerName} with Size {m._request?.size}</span>
-                  <span style={{ fontSize:12,color:T.slate[400],marginLeft:8 }}>{timeAgo(m.createdAt)}</span>
+                  <span style={{ fontWeight:600,fontSize:14,color:T.black }}>{m._seekerName} — Size {m._request?.size}</span>
                 </div>
-                <ScoreRing score={m.score} size={32}/>
+                <span style={{ fontSize:12,color:T.gray[400] }}>{timeAgo(m.createdAt)}</span>
               </div>
             ))}
           </div>
-        </Card>
+        </div>
       )}
 
-      {/* Connection Status */}
-      <Card style={{ padding:20,borderColor:isLive?T.emerald[200]:T.amber[100] }}>
-        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-          <span style={{ fontSize:18 }}>{isLive ? "🟢" : "🟡"}</span>
-          <h3 style={{ fontSize:16,fontWeight:700,color:T.slate[700],margin:0 }}>Connection Status</h3>
-          <Badge variant={isLive?"success":"warning"}>{isLive?"Live":"Demo Mode"}</Badge>
+      {/* Status */}
+      <Card style={{ padding:24 }}>
+        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
+          <div style={{ width:8,height:8,borderRadius:4,background:isLive?T.green:T.amber }}/>
+          <span style={{ fontSize:13,fontWeight:600,color:T.gray[600] }}>{isLive?"Connected":"Demo Mode"}</span>
         </div>
-        <p style={{ fontSize:13,color:T.slate[500],marginBottom:14 }}>
-          {isLive
-            ? "Connected to Supabase. Your data is persisted and synced in real-time across all devices."
-            : "Running in demo mode with local data. Data will be lost on refresh."}
+        <p style={{ fontSize:13,color:T.gray[500],lineHeight:1.6 }}>
+          {isLive ? "Synced with Supabase in real-time." : "Local demo data. Resets on refresh."}
         </p>
-        {isLive && (
-          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:8,fontSize:13 }}>
-              <span style={{ color:T.emerald[500] }}>✓</span>
-              <span style={{ color:T.slate[600] }}>Authentication</span>
-              <Badge variant="success">Connected</Badge>
-            </div>
-            <div style={{ display:"flex",alignItems:"center",gap:8,fontSize:13 }}>
-              <span style={{ color:T.emerald[500] }}>✓</span>
-              <span style={{ color:T.slate[600] }}>Database</span>
-              <Badge variant="success">Connected</Badge>
-            </div>
-            <div style={{ display:"flex",alignItems:"center",gap:8,fontSize:13 }}>
-              <span style={{ color:T.slate[400] }}>○</span>
-              <span style={{ color:T.slate[600] }}>AI Matching (Edge Function)</span>
-              <Badge>Not deployed</Badge>
-            </div>
-          </div>
-        )}
-        {!isLive && (
-          <p style={{ fontSize:12,color:T.slate[400],marginTop:4 }}>
-            The app automatically connects to Supabase when available. Check browser console for connection details.
-          </p>
-        )}
       </Card>
 
-      {/* User ID */}
-      <div style={{ marginTop:16,padding:12,background:T.slate[50],borderRadius:T.radius.md,textAlign:"center" }}>
-        <p style={{ fontSize:11,color:T.slate[400] }}>User ID: <span style={{ fontFamily:"monospace",fontSize:10 }}>{user.id}</span></p>
+      <div style={{ marginTop:20,textAlign:"center" }}>
+        <p style={{ fontSize:11,color:T.gray[400],fontFamily:"monospace" }}>{user.id}</p>
       </div>
     </div>
   );
 }
 
-// ── SECTION: Main App Shell ─────────────────────────────────────────────────
+// ── SECTION: App Shell ──────────────────────────────────────────────────────
 
 function DiaperDriveApp() {
   const [tab, setTab] = useState("dashboard");
@@ -1114,33 +1007,29 @@ function DiaperDriveApp() {
   const { user, isLive } = useApp();
 
   const tabs = [
-    { id:"dashboard", label:"Home",  ico:"🏠" },
-    { id:"give",      label:"Give",  ico:"🎁" },
-    { id:"need",      label:"Need",  ico:"🙋" },
-    { id:"profile",   label:"Profile",ico:"👤" },
+    { id:"dashboard", label:"Home",    icon:<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 10l7-7 7 7M5 8.5V16h4v-4h2v4h4V8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+    { id:"give",      label:"Give",    icon:<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+    { id:"need",      label:"Request", icon:<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 6h10M5 10h10M5 14h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+    { id:"profile",   label:"Profile", icon:<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
   ];
 
   return (
-    <div style={{ minHeight:"100vh",background:`linear-gradient(180deg, ${T.primary[50]} 0%, #fff 30%, ${T.slate[50]} 100%)` }}>
+    <div style={{ minHeight:"100vh",background:T.white }}>
       <Notifs/>
       <AuthModal open={authOpen} onClose={()=>setAuthOpen(false)}/>
 
-      <div style={{ maxWidth:740,margin:"0 auto",padding:"24px 16px",paddingBottom:80 }}>
+      <div style={{ maxWidth:680,margin:"0 auto",padding:"32px 20px",paddingBottom:100 }}>
         {/* Header */}
-        <header style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:28 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            <span style={{ fontSize:32 }}>🧸</span>
-            <div>
-              <h1 style={{ fontSize:24,fontWeight:800,background:`linear-gradient(135deg,${T.primary[600]},${T.violet[600]})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:0 }}>Diaper Drive</h1>
-              <p style={{ fontSize:12,color:T.slate[400],margin:0 }}>AI-Powered Community Matching</p>
-            </div>
+        <header style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:40 }}>
+          <div>
+            <h1 style={{ fontSize:18,fontWeight:700,color:T.black,letterSpacing:"-0.02em",margin:0 }}>Diaper Drive</h1>
           </div>
           <button onClick={()=>setAuthOpen(true)}
-            style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:T.radius.full,border:`1px solid ${T.slate[200]}`,background:"#fff",cursor:"pointer",boxShadow:T.shadow.sm }}>
-            <div style={{ width:28,height:28,borderRadius:T.radius.full,background:`linear-gradient(135deg,${T.primary[400]},${T.violet[400]})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700 }}>
+            style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderRadius:T.radius.full,border:`1px solid ${T.gray[200]}`,background:T.white,cursor:"pointer",transition:"all .2s",fontFamily:T.font }}>
+            <div style={{ width:24,height:24,borderRadius:12,background:T.black,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontSize:11,fontWeight:700 }}>
               {(user.displayName||"?")[0].toUpperCase()}
             </div>
-            <span style={{ fontSize:13,fontWeight:600,color:T.slate[700] }}>{user.displayName || "Sign in"}</span>
+            <span style={{ fontSize:13,fontWeight:600,color:T.black }}>{user.displayName || "Sign in"}</span>
           </button>
         </header>
 
@@ -1152,24 +1041,18 @@ function DiaperDriveApp() {
       </div>
 
       {/* Bottom Nav */}
-      <nav style={{ position:"fixed",bottom:0,left:0,right:0,background:"rgba(255,255,255,.92)",backdropFilter:"blur(12px)",borderTop:`1px solid ${T.slate[200]}`,zIndex:100 }}>
-        <div style={{ maxWidth:740,margin:"0 auto" }}>
-          <div style={{ display:"flex",padding:"6px 8px" }}>
+      <nav style={{ position:"fixed",bottom:0,left:0,right:0,background:"rgba(255,255,255,.95)",backdropFilter:"blur(20px)",borderTop:`1px solid ${T.gray[200]}`,zIndex:100 }}>
+        <div style={{ maxWidth:680,margin:"0 auto" }}>
+          <div style={{ display:"flex",padding:"8px 4px 12px" }}>
             {tabs.map(t => (
               <button key={t.id} onClick={()=>setTab(t.id)}
-                style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"8px 4px",
+                style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"6px 4px",
                   border:"none",background:"transparent",cursor:"pointer",transition:"all .15s",
-                  color:tab===t.id?T.primary[600]:T.slate[400] }}>
-                <span style={{ fontSize:20 }}>{t.ico}</span>
-                <span style={{ fontSize:11,fontWeight:tab===t.id?700:500 }}>{t.label}</span>
-                {tab === t.id && <div style={{ width:4,height:4,borderRadius:2,background:T.primary[600],marginTop:1 }}/>}
+                  color:tab===t.id?T.black:T.gray[400] }}>
+                {t.icon}
+                <span style={{ fontSize:10,fontWeight:tab===t.id?700:500,letterSpacing:"0.02em" }}>{t.label}</span>
               </button>
             ))}
-          </div>
-          <div style={{ textAlign:"center",paddingBottom:6 }}>
-            <span style={{ fontSize:10,color:T.slate[400] }}>
-              {isLive ? "🟢 Live — Supabase" : "🟡 Demo Mode"} · Diaper Drive v2
-            </span>
           </div>
         </div>
       </nav>
@@ -1178,8 +1061,9 @@ function DiaperDriveApp() {
         @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
         @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
         *{box-sizing:border-box;margin:0}
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overscroll-behavior:none}
-        ::selection{background:${T.primary[200]}}
+        body{font-family:${T.font};overscroll-behavior:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+        ::selection{background:${T.gray[200]}}
+        input:focus,select:focus,textarea:focus{border-color:${T.black}!important;outline:none}
       `}</style>
     </div>
   );
@@ -1190,207 +1074,3 @@ function DiaperDriveApp() {
 export default function App() {
   return <AppProvider><DiaperDriveApp/></AppProvider>;
 }
-
-/*
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  DEPLOYMENT_SQL — Run this in your Supabase SQL Editor                     ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
--- Enable Row Level Security
-alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role;
-
--- Profiles
-create table public.profiles (
-  id uuid references auth.users on delete cascade primary key,
-  display_name text,
-  zip_code text,
-  role text check (role in ('donor', 'seeker', 'both')) default 'both',
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.profiles enable row level security;
-create policy "Public profiles readable" on public.profiles for select using (true);
-create policy "Users update own profile" on public.profiles for update using (auth.uid() = id);
-create policy "Users insert own profile" on public.profiles for insert with check (auth.uid() = id);
-
--- Requests
-create table public.requests (
-  id uuid default gen_random_uuid() primary key,
-  seeker_id uuid references public.profiles(id) on delete cascade not null,
-  size text not null,
-  zip_code text not null,
-  latitude float8,
-  longitude float8,
-  urgency text check (urgency in ('low', 'medium', 'high')) default 'medium',
-  notes text,
-  status text check (status in ('active', 'matched', 'fulfilled', 'expired')) default 'active',
-  times_helped int default 0,
-  created_at timestamptz default now()
-);
-alter table public.requests enable row level security;
-create policy "Active requests readable" on public.requests for select using (status = 'active' or seeker_id = auth.uid());
-create policy "Users create own requests" on public.requests for insert with check (auth.uid() = seeker_id);
-create policy "Users manage own requests" on public.requests for update using (auth.uid() = seeker_id);
-create policy "Users delete own requests" on public.requests for delete using (auth.uid() = seeker_id);
-
--- Indexes
-create index idx_requests_active on public.requests(status, size) where status = 'active';
-create index idx_requests_seeker on public.requests(seeker_id);
-create index idx_requests_geo on public.requests(zip_code) where status = 'active';
-
--- Matches
-create table public.matches (
-  id uuid default gen_random_uuid() primary key,
-  donor_id uuid references public.profiles(id) on delete cascade not null,
-  request_id uuid references public.requests(id) on delete cascade not null,
-  score int check (score between 0 and 100),
-  reason text,
-  status text check (status in ('suggested', 'accepted', 'completed', 'declined')) default 'suggested',
-  created_at timestamptz default now(),
-  unique(donor_id, request_id)
-);
-alter table public.matches enable row level security;
-create policy "Matches readable by participants" on public.matches for select
-  using (donor_id = auth.uid() or request_id in (select id from public.requests where seeker_id = auth.uid()));
-create policy "Service role manages matches" on public.matches for all using (auth.role() = 'service_role');
-
--- Auto-expire old requests (run as cron via pg_cron or Supabase scheduled function)
--- update public.requests set status = 'expired' where status = 'active' and created_at < now() - interval '14 days';
-
--- Realtime
-alter publication supabase_realtime add table public.requests;
-alter publication supabase_realtime add table public.matches;
-
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  EDGE_FUNCTION_CODE — Deploy as supabase/functions/ai-match/index.ts          ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-// supabase/functions/ai-match/index.ts
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-serve(async (req) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
-  try {
-    const { donorZip, donorSizes, donorRadius, donorId } = await req.json();
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-    // Fetch active requests
-    const { data: requests, error } = await supabase
-      .from("requests")
-      .select("*, profiles!seeker_id(display_name, zip_code)")
-      .eq("status", "active")
-      .neq("seeker_id", donorId);
-
-    if (error) throw error;
-
-    if (!requests || requests.length === 0) {
-      return new Response(JSON.stringify({ matches: [] }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Build Claude prompt
-    const requestsSummary = requests.map((r, i) => (
-      `${i+1}. ID:${r.id} | Size:${r.size} | Zip:${r.zip_code} | Urgency:${r.urgency} | ` +
-      `Notes:"${r.notes || 'none'}" | TimesHelped:${r.times_helped} | Posted:${r.created_at}`
-    )).join("\n");
-
-    const prompt = `You are an AI matching engine for Diaper Drive, a community diaper exchange platform.
-
-A DONOR wants to help. Here is their profile:
-- Zip code: ${donorZip}
-- Available diaper sizes: ${donorSizes.join(", ")}
-- Maximum delivery distance: ${donorRadius} miles
-
-Here are all ACTIVE REQUESTS from families who need diapers:
-${requestsSummary}
-
-MATCHING CRITERIA (in priority order):
-1. SIZE MATCH: Exact size match is strongest. Adjacent sizes are acceptable (babies grow).
-2. URGENCY: "high" urgency families should be prioritized — they're running out today.
-3. FIRST-TIME SEEKERS: Families with times_helped=0 have never been helped and deserve priority.
-4. RECENCY: More recently posted requests indicate active, current need.
-5. GEOGRAPHIC CLUSTERS: If multiple families are near the same zip, suggest them together for efficient delivery.
-
-Return a JSON array of matches, sorted by priority. Each match should have:
-- requestId: the request ID
-- score: 0-100 match quality score
-- reason: 1-2 sentence human-readable explanation of why this is a good match
-
-Return ONLY valid JSON. Example: [{"requestId":"abc","score":92,"reason":"Exact size match, urgent need, first-time request."}]`;
-
-    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-5-20250514",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    const claudeData = await claudeResponse.json();
-    const text = claudeData.content?.[0]?.text || "[]";
-
-    // Parse Claude's response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    const aiMatches = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-
-    // Enrich with request data
-    const enriched = aiMatches.map(m => {
-      const req = requests.find(r => r.id === m.requestId);
-      if (!req) return null;
-      return {
-        id: crypto.randomUUID(),
-        donorId,
-        requestId: m.requestId,
-        score: m.score,
-        reason: m.reason,
-        status: "suggested",
-        _request: req,
-        _seekerName: req.profiles?.display_name || "A family",
-      };
-    }).filter(Boolean);
-
-    // Save matches to DB
-    if (enriched.length > 0) {
-      await supabase.from("matches").upsert(
-        enriched.map(m => ({
-          donor_id: donorId,
-          request_id: m.requestId,
-          score: m.score,
-          reason: m.reason,
-          status: "suggested",
-        })),
-        { onConflict: "donor_id,request_id" }
-      );
-    }
-
-    return new Response(JSON.stringify({ matches: enriched }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-});
-
-*/
